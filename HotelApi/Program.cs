@@ -42,6 +42,15 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
+// Creación automática de la base de datos y tablas al iniciar la API
+using (var scope = app.Services.CreateScope())
+{
+    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    context.Database.EnsureCreated();
+}
+
+app.Run();
+
 app.Run();
 
 public class GlobalExceptionHandler : IExceptionHandler
