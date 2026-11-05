@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using HotelApi.Data;
-using HotelApi.DTOs;
 using HotelApi.Models;
 
 namespace HotelApi.Controllers;
@@ -17,103 +16,79 @@ public class HotelesController : ControllerBase
         _context = context;
     }
 
-    // GET: api/Hoteles?ciudad=Lima
+    // GET: api/Hoteles (Optimizado con AsNoTracking e Include)
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<HotelResponseDTO>>> GetAll([FromQuery] string? ciudad)
+    public async Task<ActionResult<IEnumerable<Hotel>>> GetHoteles()
     {
-        var query = _context.Hoteles
+        var hoteles = await _context.Hoteles
             .AsNoTracking()
-            .Where(h => h.Activo);
-
-        if (!string.IsNullOrWhiteSpace(ciudad))
-        {
-            query = query.Where(h => h.Ciudad.ToLower() == ciudad.ToLower());
-        }
-
-        var hoteles = await query.Select(h => new HotelResponseDTO(
-            h.Id,
-            h.Nombre,
-            h.Direccion,
-            h.Ciudad,
-            h.Estrellas,
-            h.Activo,
-            h.Habitaciones.Count
-        )).ToListAsync();
+            .Include(h => h.Habitaciones)
+            .ToListAsync();
 
         return Ok(hoteles);
     }
 
-    // GET: api/Hoteles/5
+    // GET: api/Hoteles/5 (Optimizado con AsNoTracking)
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<HotelResponseDTO>> GetById(int id)
+    public async Task<ActionResult<Hotel>> GetHotel(int id)
     {
         var hotel = await _context.Hoteles
             .AsNoTracking()
-            .Where(h => h.Id == id && h.Activo)
-            .Select(h => new HotelResponseDTO(
-                h.Id,
-                h.Nombre,
-                h.Direccion,
-                h.Ciudad,
-                h.Estrellas,
-                h.Activo,
-                h.Habitaciones.Count
-            ))
-            .FirstOrDefaultAsync();
+            .Include(h => h.Habitaciones)
+            .FirstOrDefaultAsync(h => h.Id == id);
 
-        if (hotel == null)
-            return NotFound(new { mensaje = $"El hotel con ID {id} no existe." });
+        if (hotel is null)
+            return NotFound(new { Mensaje = $"El hotel con ID {id} no existe." });
 
         return Ok(hotel);
     }
 
     // POST: api/Hoteles
     [HttpPost]
-    public async Task<ActionResult<HotelResponseDTO>> Create([FromBody] HotelCreateUpdateDTO dto)
+    public async Task<ActionResult<Hotel>> CrearHotel([FromBody] Hotel hotel)
     {
-        var hotel = new Hotel
-        {
-            Nombre = dto.Nombre,
-            Direccion = dto.Direccion,
-            Ciudad = dto.Ciudad,
-            Estrellas = dto.Estrellas,
-            Activo = true
-        };
-
         _context.Hoteles.Add(hotel);
         await _context.SaveChangesAsync();
 
-        var response = new HotelResponseDTO(hotel.Id, hotel.Nombre, hotel.Direccion, hotel.Ciudad, hotel.Estrellas, true, 0);
-        return CreatedAtAction(nameof(GetById), new { id = hotel.Id }, response);
+        return CreatedAtAction(nameof(GetHotel), new { id = hotel.Id }, hotel);
     }
 
     // PUT: api/Hoteles/5
     [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, [FromBody] HotelCreateUpdateDTO dto)
+    public async Task<IActionResult> ActualizarHotel(int id, [FromBody] Hotel hotel)
     {
-        var hotel = await _context.Hoteles.FindAsync(id);
-        if (hotel == null || !hotel.Activo)
-            return NotFound(new { mensaje = $"El hotel con ID {id} no fue encontrado." });
+        if (id != hotel.Id)
+            return BadRequest(new { Mensaje = "El ID de la ruta no coincide con el cuerpo de la petición." });
 
-        hotel.Nombre = dto.Nombre;
-        hotel.Direccion = dto.Direccion;
-        hotel.Ciudad = dto.Ciudad;
-        hotel.Estrellas = dto.Estrellas;
+        var existe = await _context.Hoteles.AnyAsync(h => h.Id == id);
+        if (!existe)
+            return NotFound(new { Mensaje = $"Hotel con ID {id} no encontrado." });
 
-        await _context.SaveChangesAsync();
+        _context.Entry(hotel).State = EntityState.Modified;
+
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw;
+        }
+
         return NoContent();
     }
 
-    // DELETE: api/Hoteles/5 (Borrado Lógico)
+    // DELETE: api/Hoteles/5
     [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> EliminarHotel(int id)
     {
         var hotel = await _context.Hoteles.FindAsync(id);
-        if (hotel == null)
-            return NotFound(new { mensaje = $"El hotel con ID {id} no existe." });
+        if (hotel is null)
+            return NotFound(new { Mensaje = $"Hotel con ID {id} no encontrado." });
 
-        hotel.Activo = false;
+        _context.Hoteles.Remove(hotel);
         await _context.SaveChangesAsync();
+
         return NoContent();
     }
 }
