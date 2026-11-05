@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using HotelApi.Data;
+using HotelApi.Data.Repositories;
 using HotelApi.DTOs;
 using HotelApi.Models;
 
@@ -11,187 +12,53 @@ namespace HotelApi.Controllers;
 public class ReservasController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
+    private readonly IReservaRepository _reservaRepo;
 
-    public ReservasController(ApplicationDbContext context)
+    public ReservasController(ApplicationDbContext context, IReservaRepository reservaRepo)
     {
         _context = context;
+        _reservaRepo = reservaRepo;
     }
 
-    // GET: api/Reservas (Lectura optimizada con AsNoTracking y carga Include)
+    // GET: api/Reservas (Optimizado con AsNoTracking e Include mediante el repositorio)
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<ReservaLecturaDTO>>> GetReservas()
+    public async Task<ActionResult<IEnumerable<ReservaResponseDTO>>> GetReservas()
     {
-        var reservas = await _context.Reservas
-            .AsNoTracking()
-            .Include(r => r.ReservaDetalles)
-                .ThenInclude(d => d.Habitacion)
-            .Include(r => r.ReservaServicios)
-                .ThenInclude(rs => rs.ServicioAdicional)
-            .Select(r => new ReservaLecturaDTO
-            {
-                Id = r.Id,
-                UsuarioId = r.UsuarioId,
-                FechaCreacion = r.FechaCreacion,
-                Estado = r.Estado.ToString(),
-                Total = r.Total,
-                Detalles = r.ReservaDetalles.Select(d => new ReservaDetalleLecturaDTO
-                {
-                    Id = d.Id,
-                    HabitacionId = d.HabitacionId,
-                    NumeroHabitacion = d.Habitacion != null ? d.Habitacion.Numero : "N/A",
-                    FechaEntrada = d.FechaEntrada,
-                    FechaSalida = d.FechaSalida,
-                    PrecioUnitarioPorNoche = d.PrecioUnitarioPorNoche,
-                    Subtotal = d.Subtotal
-                }).ToList(),
-                Servicios = r.ReservaServicios.Select(s => new ReservaServicioLecturaDTO
-                {
-                    Id = s.Id,
-                    ServicioAdicionalId = s.ServicioAdicionalId,
-                    NombreServicio = s.ServicioAdicional != null ? s.ServicioAdicional.Nombre : "N/A",
-                    PrecioUnitario = s.PrecioUnitario,
-                    Cantidad = s.Cantidad,
-                    Subtotal = s.Subtotal
-                }).ToList()
-            })
-            .ToListAsync();
-
+        var reservas = await _reservaRepo.ObtenerTodasAsync();
         return Ok(reservas);
     }
 
     // GET: api/Reservas/5
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<ReservaLecturaDTO>> GetReservaPorId(int id)
+    public async Task<ActionResult<ReservaResponseDTO>> GetReservaPorId(int id)
     {
-        var reserva = await _context.Reservas
-            .AsNoTracking()
-            .Include(r => r.ReservaDetalles)
-                .ThenInclude(d => d.Habitacion)
-            .Include(r => r.ReservaServicios)
-                .ThenInclude(rs => rs.ServicioAdicional)
-            .FirstOrDefaultAsync(r => r.Id == id);
-
+        var reserva = await _reservaRepo.ObtenerPorIdAsync(id);
         if (reserva is null)
             return NotFound(new { Mensaje = $"La reserva con ID {id} no fue encontrada." });
 
-        var dto = new ReservaLecturaDTO
-        {
-            Id = reserva.Id,
-            UsuarioId = reserva.UsuarioId,
-            FechaCreacion = reserva.FechaCreacion,
-            Estado = reserva.Estado.ToString(),
-            Total = reserva.Total,
-            Detalles = reserva.ReservaDetalles.Select(d => new ReservaDetalleLecturaDTO
-            {
-                Id = d.Id,
-                HabitacionId = d.HabitacionId,
-                NumeroHabitacion = d.Habitacion != null ? d.Habitacion.Numero : "N/A",
-                FechaEntrada = d.FechaEntrada,
-                FechaSalida = d.FechaSalida,
-                PrecioUnitarioPorNoche = d.PrecioUnitarioPorNoche,
-                Subtotal = d.Subtotal
-            }).ToList(),
-            Servicios = reserva.ReservaServicios.Select(s => new ReservaServicioLecturaDTO
-            {
-                Id = s.Id,
-                ServicioAdicionalId = s.ServicioAdicionalId,
-                NombreServicio = s.ServicioAdicional != null ? s.ServicioAdicional.Nombre : "N/A",
-                PrecioUnitario = s.PrecioUnitario,
-                Cantidad = s.Cantidad,
-                Subtotal = s.Subtotal
-            }).ToList()
-        };
-
-        return Ok(dto);
+        return Ok(reserva);
     }
 
-    // POST: api/Reservas (Creación tipo carrito con validación de noches)
+    // POST: api/Reservas (Creación con lista de habitaciones y servicios)
     [HttpPost]
-    public async Task<ActionResult> CrearReserva([FromBody] ReservaCreateDTO dto)
+    public async Task<ActionResult<ReservaResponseDTO>> CrearReserva([FromBody] CrearReservaDTO dto)
     {
-        var usuarioExiste = await _context.Usuarios.AnyAsync(u => u.Id == dto.UsuarioId);
-        if (!usuarioExiste)
-            return BadRequest(new { Mensaje = $"El usuario con ID {dto.UsuarioId} no existe." });
-
-        decimal totalCalculado = 0;
-
-        var nuevaReserva = new Reserva
+        try
         {
-            UsuarioId = dto.UsuarioId,
-            FechaCreacion = DateTime.UtcNow,
-            Estado = EstadoReserva.Confirmada,
-            ReservaDetalles = new List<ReservaDetalle>(),
-            ReservaServicios = new List<ReservaServicio>()
-        };
-
-        foreach (var detalleDto in dto.Detalles)
-        {
-            if (detalleDto.FechaSalida <= detalleDto.FechaEntrada)
-            {
-                return BadRequest(new
-                {
-                    Mensaje = $"La fecha de salida debe ser posterior a la fecha de entrada para la habitación {detalleDto.HabitacionId}."
-                });
-            }
-
-            var habitacion = await _context.Habitaciones.FindAsync(detalleDto.HabitacionId);
-            if (habitacion is null)
-                return BadRequest(new { Mensaje = $"La habitación con ID {detalleDto.HabitacionId} no existe." });
-
-            int noches = (detalleDto.FechaSalida - detalleDto.FechaEntrada).Days;
-            if (noches <= 0) noches = 1;
-
-            // Si en Habitacion.cs se llama PrecioPorNoche:
-            decimal subtotalHabitacion = habitacion.PrecioPorNoche * noches;
-            var detalle = new ReservaDetalle
-            {
-                HabitacionId = habitacion.Id,
-                FechaEntrada = detalleDto.FechaEntrada,
-                FechaSalida = detalleDto.FechaSalida,
-                PrecioUnitarioPorNoche = habitacion.PrecioPorNoche,
-                Subtotal = subtotalHabitacion
-            };
-
-            totalCalculado += subtotalHabitacion;
-            nuevaReserva.ReservaDetalles.Add(detalle);
+            var creada = await _reservaRepo.CrearReservaAsync(dto);
+            return CreatedAtAction(nameof(GetReservaPorId), new { id = creada.Id }, creada);
         }
-
-        if (dto.Servicios != null && dto.Servicios.Any())
+        catch (KeyNotFoundException ex)
         {
-            foreach (var servicioDto in dto.Servicios)
-            {
-                var servicio = await _context.ServiciosAdicionales.FindAsync(servicioDto.ServicioAdicionalId);
-                if (servicio is null)
-                    return BadRequest(new { Mensaje = $"El servicio adicional con ID {servicioDto.ServicioAdicionalId} no existe." });
-
-                decimal subtotalServicio = servicio.Precio * servicioDto.Cantidad;
-
-                var reservaServicio = new ReservaServicio
-                {
-                    ServicioAdicionalId = servicio.Id,
-                    PrecioUnitario = servicio.Precio,
-                    Cantidad = servicioDto.Cantidad,
-                    Subtotal = subtotalServicio
-                };
-
-                totalCalculado += subtotalServicio;
-                nuevaReserva.ReservaServicios.Add(reservaServicio);
-            }
+            return BadRequest(new { Mensaje = ex.Message });
         }
-
-        nuevaReserva.Total = totalCalculado;
-
-        _context.Reservas.Add(nuevaReserva);
-        await _context.SaveChangesAsync();
-
-        return CreatedAtAction(
-            nameof(GetReservaPorId),
-            new { id = nuevaReserva.Id },
-            new { Mensaje = "Reserva creada exitosamente.", ReservaId = nuevaReserva.Id, Total = totalCalculado }
-        );
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { Mensaje = ex.Message });
+        }
     }
 
-    // PUT: api/Reservas/5 (Actualización total y recálculo)
+    // PUT: api/Reservas/5 (Actualización completa y recálculo de subtotales)
     [HttpPut("{id:int}")]
     public async Task<IActionResult> ActualizarReserva(int id, [FromBody] ReservaUpdateDTO dto)
     {
@@ -234,7 +101,7 @@ public class ReservasController : ControllerBase
         return NoContent();
     }
 
-    // PATCH: api/Reservas/5/estado (Actualización parcial de enum)
+    // PATCH: api/Reservas/5/estado (Actualización parcial del estado)
     [HttpPatch("{id:int}/estado")]
     public async Task<IActionResult> CambiarEstadoReserva(int id, [FromBody] ActualizarEstadoDTO dto)
     {
@@ -248,7 +115,7 @@ public class ReservasController : ControllerBase
         return Ok(new { Mensaje = $"Estado actualizado a {reserva.Estado} exitosamente." });
     }
 
-    // DELETE: api/Reservas/5 (Baja lógica mediante estado)
+    // DELETE: api/Reservas/5 (Cancelación / Baja lógica)
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> CancelarReserva(int id)
     {

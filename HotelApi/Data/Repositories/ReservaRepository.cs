@@ -13,181 +13,154 @@ public class ReservaRepository : IReservaRepository
         _context = context;
     }
 
-    public async Task<ReservaResponseDTO?> ObtenerPorIdDetalladoAsync(int id)
+    public async Task<IEnumerable<ReservaResponseDTO>> ObtenerTodasAsync()
     {
         return await _context.Reservas
             .AsNoTracking()
-            .Where(r => r.Id == id)
-            .Select(r => new ReservaResponseDTO(
-                r.Id,
-                r.UsuarioId,
-                r.Usuario!.NombreCompleto,
-                r.FechaCreacion,
-                r.Estado.ToString(),
-                r.Total,
-                r.ReservaDetalles.Select(d => new DetalleHabitacionDTO(
-                    d.HabitacionId,
-                    d.Habitacion!.Numero,
-                    d.Habitacion.Tipo,
-                    d.FechaEntrada,
-                    d.FechaSalida,
-                    d.PrecioUnitarioPorNoche,
-                    d.Subtotal
-                )).ToList(),
-                r.ReservaServicios.Select(s => new DetalleServicioDTO(
-                    s.ServicioAdicionalId,
-                    s.ServicioAdicional!.Nombre,
-                    s.Cantidad,
-                    s.PrecioUnitario,
-                    s.Subtotal
-                )).ToList()
-            ))
-            .FirstOrDefaultAsync();
-    }
-
-    public async Task<IEnumerable<ReservaResponseDTO>> ObtenerPorUsuarioAsync(int usuarioId)
-    {
-        return await _context.Reservas
-            .AsNoTracking()
-            .Where(r => r.UsuarioId == usuarioId)
-            .OrderByDescending(r => r.FechaCreacion)
-            .Select(r => new ReservaResponseDTO(
-                r.Id,
-                r.UsuarioId,
-                r.Usuario!.NombreCompleto,
-                r.FechaCreacion,
-                r.Estado.ToString(),
-                r.Total,
-                r.ReservaDetalles.Select(d => new DetalleHabitacionDTO(
-                    d.HabitacionId,
-                    d.Habitacion!.Numero,
-                    d.Habitacion.Tipo,
-                    d.FechaEntrada,
-                    d.FechaSalida,
-                    d.PrecioUnitarioPorNoche,
-                    d.Subtotal
-                )).ToList(),
-                r.ReservaServicios.Select(s => new DetalleServicioDTO(
-                    s.ServicioAdicionalId,
-                    s.ServicioAdicional!.Nombre,
-                    s.Cantidad,
-                    s.PrecioUnitario,
-                    s.Subtotal
-                )).ToList()
-            ))
+            .Include(r => r.ReservaDetalles)
+                .ThenInclude(d => d.Habitacion)
+            .Include(r => r.ReservaServicios)
+                .ThenInclude(rs => rs.ServicioAdicional)
+            .Select(r => new ReservaResponseDTO
+            {
+                Id = r.Id,
+                UsuarioId = r.UsuarioId,
+                FechaCreacion = r.FechaCreacion,
+                Estado = r.Estado.ToString(),
+                Total = r.Total,
+                Habitaciones = r.ReservaDetalles.Select(d => new DetalleHabitacionDTO
+                {
+                    Id = d.Id,
+                    HabitacionId = d.HabitacionId,
+                    NumeroHabitacion = d.Habitacion != null ? d.Habitacion.Numero : "N/A",
+                    FechaEntrada = d.FechaEntrada,
+                    FechaSalida = d.FechaSalida,
+                    PrecioUnitarioPorNoche = d.PrecioUnitarioPorNoche,
+                    Subtotal = d.Subtotal
+                }).ToList(),
+                Servicios = r.ReservaServicios.Select(s => new DetalleServicioDTO
+                {
+                    Id = s.Id,
+                    ServicioAdicionalId = s.ServicioAdicionalId,
+                    NombreServicio = s.ServicioAdicional != null ? s.ServicioAdicional.Nombre : "N/A",
+                    PrecioUnitario = s.PrecioUnitario,
+                    Cantidad = s.Cantidad,
+                    Subtotal = s.Subtotal
+                }).ToList()
+            })
             .ToListAsync();
     }
 
-    public async Task<Reserva> CrearReservaCarritoAsync(CrearReservaDTO dto)
+    public async Task<ReservaResponseDTO?> ObtenerPorIdAsync(int id)
+    {
+        var r = await _context.Reservas
+            .AsNoTracking()
+            .Include(res => res.ReservaDetalles)
+                .ThenInclude(d => d.Habitacion)
+            .Include(res => res.ReservaServicios)
+                .ThenInclude(rs => rs.ServicioAdicional)
+            .FirstOrDefaultAsync(res => res.Id == id);
+
+        if (r is null)
+            return null;
+
+        return new ReservaResponseDTO
+        {
+            Id = r.Id,
+            UsuarioId = r.UsuarioId,
+            FechaCreacion = r.FechaCreacion,
+            Estado = r.Estado.ToString(),
+            Total = r.Total,
+            Habitaciones = r.ReservaDetalles.Select(d => new DetalleHabitacionDTO
+            {
+                Id = d.Id,
+                HabitacionId = d.HabitacionId,
+                NumeroHabitacion = d.Habitacion != null ? d.Habitacion.Numero : "N/A",
+                FechaEntrada = d.FechaEntrada,
+                FechaSalida = d.FechaSalida,
+                PrecioUnitarioPorNoche = d.PrecioUnitarioPorNoche,
+                Subtotal = d.Subtotal
+            }).ToList(),
+            Servicios = r.ReservaServicios.Select(s => new DetalleServicioDTO
+            {
+                Id = s.Id,
+                ServicioAdicionalId = s.ServicioAdicionalId,
+                NombreServicio = s.ServicioAdicional != null ? s.ServicioAdicional.Nombre : "N/A",
+                PrecioUnitario = s.PrecioUnitario,
+                Cantidad = s.Cantidad,
+                Subtotal = s.Subtotal
+            }).ToList()
+        };
+    }
+
+    public async Task<ReservaResponseDTO> CrearReservaAsync(CrearReservaDTO dto)
     {
         var usuarioExiste = await _context.Usuarios.AnyAsync(u => u.Id == dto.UsuarioId);
         if (!usuarioExiste)
             throw new KeyNotFoundException($"El usuario con ID {dto.UsuarioId} no existe.");
 
-        // 1. Validar colisiones entre los elementos dentro del mismo carrito
-        var gruposHabitaciones = dto.Habitaciones.GroupBy(h => h.HabitacionId);
-        foreach (var grupo in gruposHabitaciones)
-        {
-            var lista = grupo.OrderBy(g => g.FechaEntrada).ToList();
-            for (int i = 0; i < lista.Count - 1; i++)
-            {
-                if (lista[i].FechaSalida.Date > lista[i + 1].FechaEntrada.Date)
-                    throw new InvalidOperationException($"El carrito contiene rangos de fechas superpuestos para la misma habitación (ID {grupo.Key}).");
-            }
-        }
+        decimal totalCalculado = 0;
 
-        using var transaction = await _context.Database.BeginTransactionAsync();
-
-        var reserva = new Reserva
+        var nuevaReserva = new Reserva
         {
             UsuarioId = dto.UsuarioId,
             FechaCreacion = DateTime.UtcNow,
-            Estado = EstadoReserva.Pendiente
+            Estado = EstadoReserva.Confirmada,
+            ReservaDetalles = new List<ReservaDetalle>(),
+            ReservaServicios = new List<ReservaServicio>()
         };
 
-        decimal totalAcumulado = 0;
-
-        var habitacionIds = dto.Habitaciones.Select(h => h.HabitacionId).Distinct().ToList();
-        var habitaciones = await _context.Habitaciones
-            .Where(h => habitacionIds.Contains(h.Id) && h.Disponible)
-            .ToDictionaryAsync(h => h.Id);
-
-        // 2. Procesar habitaciones
         foreach (var item in dto.Habitaciones)
         {
-            if (!habitaciones.TryGetValue(item.HabitacionId, out var hab))
-                throw new InvalidOperationException($"La habitación {item.HabitacionId} no existe o no está disponible.");
+            if (item.FechaSalida <= item.FechaEntrada)
+                throw new ArgumentException($"La fecha de salida debe ser mayor a la de entrada para la habitación {item.HabitacionId}.");
 
-            if (item.FechaSalida.Date <= item.FechaEntrada.Date)
-                throw new ArgumentException($"La estancia en la habitación {hab.Numero} debe ser de al menos 1 noche (Fecha salida posterior a entrada).");
+            var habitacion = await _context.Habitaciones.FindAsync(item.HabitacionId)
+                ?? throw new KeyNotFoundException($"La habitación con ID {item.HabitacionId} no existe.");
 
-            bool enConflicto = await _context.ReservaDetalles
-                .AnyAsync(rd => rd.HabitacionId == item.HabitacionId &&
-                                rd.Reserva!.Estado != EstadoReserva.Cancelada &&
-                                item.FechaEntrada < rd.FechaSalida &&
-                                item.FechaSalida > rd.FechaEntrada);
+            int noches = (item.FechaSalida - item.FechaEntrada).Days;
+            if (noches <= 0) noches = 1;
 
-            if (enConflicto)
-                throw new InvalidOperationException($"La habitación {hab.Numero} ya se encuentra ocupada en esas fechas.");
+            decimal subtotal = habitacion.PrecioPorNoche * noches;
 
-            int totalNoches = (item.FechaSalida.Date - item.FechaEntrada.Date).Days;
-            decimal subtotal = hab.PrecioPorNoche * totalNoches;
-
-            reserva.ReservaDetalles.Add(new ReservaDetalle
+            nuevaReserva.ReservaDetalles.Add(new ReservaDetalle
             {
-                HabitacionId = hab.Id,
+                HabitacionId = habitacion.Id,
                 FechaEntrada = item.FechaEntrada,
                 FechaSalida = item.FechaSalida,
-                PrecioUnitarioPorNoche = hab.PrecioPorNoche,
+                PrecioUnitarioPorNoche = habitacion.PrecioPorNoche,
                 Subtotal = subtotal
             });
 
-            totalAcumulado += subtotal;
+            totalCalculado += subtotal;
         }
 
-        // 3. Procesar servicios adicionales
         if (dto.Servicios != null && dto.Servicios.Any())
         {
-            var servicioIds = dto.Servicios.Select(s => s.ServicioAdicionalId).Distinct().ToList();
-            var servicios = await _context.ServiciosAdicionales
-                .Where(s => servicioIds.Contains(s.Id))
-                .ToDictionaryAsync(s => s.Id);
-
-            foreach (var srvItem in dto.Servicios)
+            foreach (var srv in dto.Servicios)
             {
-                if (!servicios.TryGetValue(srvItem.ServicioAdicionalId, out var srv))
-                    throw new KeyNotFoundException($"El servicio adicional {srvItem.ServicioAdicionalId} no existe.");
+                var servicio = await _context.ServiciosAdicionales.FindAsync(srv.ServicioAdicionalId)
+                    ?? throw new KeyNotFoundException($"El servicio adicional con ID {srv.ServicioAdicionalId} no existe.");
 
-                decimal subtotalServicio = srv.Precio * srvItem.Cantidad;
+                decimal subtotal = servicio.Precio * srv.Cantidad;
 
-                reserva.ReservaServicios.Add(new ReservaServicio
+                nuevaReserva.ReservaServicios.Add(new ReservaServicio
                 {
-                    ServicioAdicionalId = srv.Id,
-                    Cantidad = srvItem.Cantidad,
-                    PrecioUnitario = srv.Precio,
-                    Subtotal = subtotalServicio
+                    ServicioAdicionalId = servicio.Id,
+                    PrecioUnitario = servicio.Precio,
+                    Cantidad = srv.Cantidad,
+                    Subtotal = subtotal
                 });
 
-                totalAcumulado += subtotalServicio;
+                totalCalculado += subtotal;
             }
         }
 
-        reserva.Total = totalAcumulado;
+        nuevaReserva.Total = totalCalculado;
 
-        _context.Reservas.Add(reserva);
+        _context.Reservas.Add(nuevaReserva);
         await _context.SaveChangesAsync();
-        await transaction.CommitAsync();
 
-        return reserva;
-    }
-
-    public async Task<bool> ActualizarEstadoAsync(int id, EstadoReserva nuevoEstado)
-    {
-        var reserva = await _context.Reservas.FindAsync(id);
-        if (reserva == null) return false;
-
-        reserva.Estado = nuevoEstado;
-        await _context.SaveChangesAsync();
-        return true;
+        return (await ObtenerPorIdAsync(nuevaReserva.Id))!;
     }
 }
