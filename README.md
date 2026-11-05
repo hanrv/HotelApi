@@ -17,7 +17,7 @@ El proyecto adopta un patrón de **persistencia híbrida**, aprovechando la robu
 
 El esquema relacional consta de 15 tablas normalizadas con restricciones de integridad referencial, índices filtrados y reglas de negocio a nivel de motor:
 
-![Diagrama Físico de Base de Datos](wasimarket_diagrama_fisico.jpg)
+![Diagrama Físico de Base de Datos](wasimarket_diagrama_fisico.png)
 
 ### Módulos del Sistema
 * **Actores y Ubicaciones:** Tablas `USUARIO`, `CLIENTE`, `TIENDA`, `DISTRITO` y `DIRECCION`. Soporta segregación por tipo de usuario (`COMERCIANTE`, `CONSUMIDOR`), control de ubigeo y regla de dirección principal única por cliente.
