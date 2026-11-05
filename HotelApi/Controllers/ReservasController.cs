@@ -17,9 +17,7 @@ public class ReservasController : ControllerBase
         _context = context;
     }
 
-    // =========================================================================
-    // 1. GET: api/Reservas (Optimizado con AsNoTracking y carga voraz Include)
-    // =========================================================================
+    // GET: api/Reservas (Lectura optimizada con AsNoTracking y carga Include)
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ReservaLecturaDTO>>> GetReservas()
     {
@@ -61,9 +59,7 @@ public class ReservasController : ControllerBase
         return Ok(reservas);
     }
 
-    // =========================================================================
-    // 2. GET: api/Reservas/{id} (Lectura puntual optimizada)
-    // =========================================================================
+    // GET: api/Reservas/5
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ReservaLecturaDTO>> GetReservaPorId(int id)
     {
@@ -109,9 +105,7 @@ public class ReservasController : ControllerBase
         return Ok(dto);
     }
 
-    // =========================================================================
-    // 3. POST: api/Reservas (Creación tipo carrito de compras)
-    // =========================================================================
+    // POST: api/Reservas (Creación tipo carrito con validación de noches)
     [HttpPost]
     public async Task<ActionResult> CrearReserva([FromBody] ReservaCreateDTO dto)
     {
@@ -130,7 +124,6 @@ public class ReservasController : ControllerBase
             ReservaServicios = new List<ReservaServicio>()
         };
 
-        // Procesar habitaciones (Detalles)
         foreach (var detalleDto in dto.Detalles)
         {
             if (detalleDto.FechaSalida <= detalleDto.FechaEntrada)
@@ -148,14 +141,14 @@ public class ReservasController : ControllerBase
             int noches = (detalleDto.FechaSalida - detalleDto.FechaEntrada).Days;
             if (noches <= 0) noches = 1;
 
-            decimal subtotalHabitacion = habitacion.Precio * noches;
-
+            // Si en Habitacion.cs se llama PrecioPorNoche:
+            decimal subtotalHabitacion = habitacion.PrecioPorNoche * noches;
             var detalle = new ReservaDetalle
             {
                 HabitacionId = habitacion.Id,
                 FechaEntrada = detalleDto.FechaEntrada,
                 FechaSalida = detalleDto.FechaSalida,
-                PrecioUnitarioPorNoche = habitacion.Precio,
+                PrecioUnitarioPorNoche = habitacion.PrecioPorNoche,
                 Subtotal = subtotalHabitacion
             };
 
@@ -163,7 +156,6 @@ public class ReservasController : ControllerBase
             nuevaReserva.ReservaDetalles.Add(detalle);
         }
 
-        // Procesar servicios opcionales
         if (dto.Servicios != null && dto.Servicios.Any())
         {
             foreach (var servicioDto in dto.Servicios)
@@ -199,9 +191,7 @@ public class ReservasController : ControllerBase
         );
     }
 
-    // =========================================================================
-    // 4. PUT: api/Reservas/{id} (Actualización completa)
-    // =========================================================================
+    // PUT: api/Reservas/5 (Actualización total y recálculo)
     [HttpPut("{id:int}")]
     public async Task<IActionResult> ActualizarReserva(int id, [FromBody] ReservaUpdateDTO dto)
     {
@@ -244,9 +234,7 @@ public class ReservasController : ControllerBase
         return NoContent();
     }
 
-    // =========================================================================
-    // 5. PATCH: api/Reservas/{id}/estado (Actualización parcial de estado)
-    // =========================================================================
+    // PATCH: api/Reservas/5/estado (Actualización parcial de enum)
     [HttpPatch("{id:int}/estado")]
     public async Task<IActionResult> CambiarEstadoReserva(int id, [FromBody] ActualizarEstadoDTO dto)
     {
@@ -260,9 +248,7 @@ public class ReservasController : ControllerBase
         return Ok(new { Mensaje = $"Estado actualizado a {reserva.Estado} exitosamente." });
     }
 
-    // =========================================================================
-    // 6. DELETE: api/Reservas/{id} (Baja lógica)
-    // =========================================================================
+    // DELETE: api/Reservas/5 (Baja lógica mediante estado)
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> CancelarReserva(int id)
     {

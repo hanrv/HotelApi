@@ -3,22 +3,15 @@ using HotelApi.Models;
 
 namespace HotelApi.DTOs;
 
-public class ReservaDetalleCreateDTO
+// =========================================================================
+// 1. DTOs de Entrada (Creación y Modificación)
+// =========================================================================
+
+public class CrearReservaHabitacionDTO
 {
-    [Required(ErrorMessage = "El ID de la habitación es obligatorio.")]
+    [Required]
     public int HabitacionId { get; set; }
 
-    [Required(ErrorMessage = "La fecha de entrada es obligatoria.")]
-    public DateTime FechaEntrada { get; set; }
-
-    [Required(ErrorMessage = "La fecha de salida es obligatoria.")]
-    public DateTime FechaSalida { get; set; }
-}
-
-public class ReservaDetalleUpdateDTO
-{
-    public int Id { get; set; }
-
     [Required]
     public DateTime FechaEntrada { get; set; }
 
@@ -26,32 +19,49 @@ public class ReservaDetalleUpdateDTO
     public DateTime FechaSalida { get; set; }
 }
 
-public class ReservaServicioCreateDTO
+public class CrearReservaServicioDTO
 {
     [Required]
     public int ServicioAdicionalId { get; set; }
 
-    [Range(1, 50, ErrorMessage = "La cantidad debe ser entre 1 y 50.")]
+    [Range(1, 50)]
     public int Cantidad { get; set; } = 1;
 }
 
-public class ReservaCreateDTO
+// DTO de entrada compatible con el repositorio y el controlador
+public class CrearReservaDTO
 {
-    [Required(ErrorMessage = "El ID de usuario es obligatorio.")]
+    [Required]
     public int UsuarioId { get; set; }
 
-    [Required(ErrorMessage = "Debe incluir al menos una habitación.")]
-    [MinLength(1, ErrorMessage = "La reserva debe tener al menos un detalle de habitación.")]
-    public List<ReservaDetalleCreateDTO> Detalles { get; set; } = new();
+    // Propiedad 'Habitaciones' requerida por ReservaRepository.cs
+    public List<CrearReservaHabitacionDTO> Habitaciones { get; set; } = new();
 
-    public List<ReservaServicioCreateDTO> Servicios { get; set; } = new();
+    // Alias 'Detalles' para compatibilidad con el controlador
+    public List<CrearReservaHabitacionDTO> Detalles
+    {
+        get => Habitaciones;
+        set => Habitaciones = value;
+    }
+
+    public List<CrearReservaServicioDTO> Servicios { get; set; } = new();
+}
+
+public class ReservaDetalleCreateDTO : CrearReservaHabitacionDTO { }
+public class ReservaServicioCreateDTO : CrearReservaServicioDTO { }
+public class ReservaCreateDTO : CrearReservaDTO { }
+
+public class ReservaDetalleUpdateDTO
+{
+    public int Id { get; set; }
+    public DateTime FechaEntrada { get; set; }
+    public DateTime FechaSalida { get; set; }
 }
 
 public class ReservaUpdateDTO
 {
     [Required]
     public EstadoReserva Estado { get; set; }
-
     public List<ReservaDetalleUpdateDTO> Detalles { get; set; } = new();
 }
 
@@ -61,30 +71,35 @@ public class ActualizarEstadoDTO
     public EstadoReserva NuevoEstado { get; set; }
 }
 
-public class ReservaLecturaDTO
-{
-    public int Id { get; set; }
-    public int UsuarioId { get; set; }
-    public DateTime FechaCreacion { get; set; }
-    public string Estado { get; set; } = string.Empty;
-    public decimal Total { get; set; }
-    public List<ReservaDetalleLecturaDTO> Detalles { get; set; } = new();
-    public List<ReservaServicioLecturaDTO> Servicios { get; set; } = new();
-}
+// =========================================================================
+// 2. DTOs de Salida (Lectura y Proyección)
+// =========================================================================
 
-public class ReservaDetalleLecturaDTO
+public class DetalleHabitacionDTO
 {
     public int Id { get; set; }
     public int HabitacionId { get; set; }
     public string NumeroHabitacion { get; set; } = string.Empty;
     public DateTime FechaEntrada { get; set; }
     public DateTime FechaSalida { get; set; }
-    public int CantidadNoches => (FechaSalida - FechaEntrada).Days > 0 ? (FechaSalida - FechaEntrada).Days : 1;
     public decimal PrecioUnitarioPorNoche { get; set; }
     public decimal Subtotal { get; set; }
+
+    public DetalleHabitacionDTO() { }
+
+    public DetalleHabitacionDTO(int id, int habitacionId, string numeroHabitacion, DateTime entrada, DateTime salida, decimal precio, decimal subtotal)
+    {
+        Id = id;
+        HabitacionId = habitacionId;
+        NumeroHabitacion = numeroHabitacion;
+        FechaEntrada = entrada;
+        FechaSalida = salida;
+        PrecioUnitarioPorNoche = precio;
+        Subtotal = subtotal;
+    }
 }
 
-public class ReservaServicioLecturaDTO
+public class DetalleServicioDTO
 {
     public int Id { get; set; }
     public int ServicioAdicionalId { get; set; }
@@ -92,4 +107,60 @@ public class ReservaServicioLecturaDTO
     public decimal PrecioUnitario { get; set; }
     public int Cantidad { get; set; }
     public decimal Subtotal { get; set; }
+
+    public DetalleServicioDTO() { }
+
+    public DetalleServicioDTO(int id, int servicioId, string nombre, decimal precio, int cantidad, decimal subtotal)
+    {
+        Id = id;
+        ServicioAdicionalId = servicioId;
+        NombreServicio = nombre;
+        PrecioUnitario = precio;
+        Cantidad = cantidad;
+        Subtotal = subtotal;
+    }
 }
+
+public class ReservaDetalleLecturaDTO : DetalleHabitacionDTO { }
+public class ReservaServicioLecturaDTO : DetalleServicioDTO { }
+
+// DTO principal con constructor de 8 parámetros para ReservaRepository.cs
+public class ReservaResponseDTO
+{
+    public int Id { get; set; }
+    public int UsuarioId { get; set; }
+    public string UsuarioNombre { get; set; } = string.Empty;
+    public DateTime FechaCreacion { get; set; }
+    public EstadoReserva Estado { get; set; }
+    public decimal Total { get; set; }
+    public List<DetalleHabitacionDTO> Habitaciones { get; set; } = new();
+    public List<DetalleServicioDTO> Servicios { get; set; } = new();
+
+    // Alias para el controlador
+    public List<DetalleHabitacionDTO> Detalles => Habitaciones;
+
+    public ReservaResponseDTO() { }
+
+    // Constructor de 8 argumentos requerido en las líneas 21 y 54
+    public ReservaResponseDTO(
+        int id,
+        int usuarioId,
+        string usuarioNombre,
+        DateTime fechaCreacion,
+        EstadoReserva estado,
+        decimal total,
+        List<DetalleHabitacionDTO> habitaciones,
+        List<DetalleServicioDTO> servicios)
+    {
+        Id = id;
+        UsuarioId = usuarioId;
+        UsuarioNombre = usuarioNombre;
+        FechaCreacion = fechaCreacion;
+        Estado = estado;
+        Total = total;
+        Habitaciones = habitaciones;
+        Servicios = servicios;
+    }
+}
+
+public class ReservaLecturaDTO : ReservaResponseDTO { }
